@@ -1,129 +1,130 @@
-# TestTemplate
+# Testriscv-mini
 
-基于 [Verilua](https://github.com/cyril0124/verilua) 的硬件验证模板工程，支持 VCS 和 Verilator 两种仿真器。RTL 由 [ChiselTemplate](https://github.com/YangtzFan/ChiselTemplate) 子模块生成，验证逻辑用 Lua 编写。
+面向 [riscv-mini](https://github.com/ucb-bar/riscv-mini) 的硬件验证工程，使用 Mill 将 Chisel 源码编译为 SystemVerilog，并以 xmake 和 [Verilua](https://github.com/cyril0124/verilua) 组织后续仿真验证。
+
+`riscv-mini` 是实现 RV32I 的三级流水线处理器，包含指令缓存和数据缓存。本仓库通过 Git 子模块引入其源码，在验证仓库根目录维护独立的 Mill 构建配置。
+
+## 当前状态
+
+- **RTL 生成已跑通**：执行 `xmake build rtl`，通过 Mill 调用 `mini.Main`，直接生成 `build/rtl/Tile.sv`。
+- **仿真环境正在迁移**：现有 Lua 环境和用例仍来自加法器模板，尚未适配 riscv-mini，当前没有已跑通的处理器仿真或指令测试。
 
 ## 目录结构
 
-```
-TestTemplate/
-├── ChiselTemplate/     # Chisel RTL 子模块（Scala → SystemVerilog）
-├── src/                # 验证基础设施（env、monitor、cfg）
-│   ├── cfg.lua
-│   ├── env.lua
-│   └── test_template
-│       └── TestTemplateMonitor.lua
-├── test_cases/         # 测试用例（Lua）
-│   ├── 000_smoke.lua   # 冒烟用例：验证后 0+0
-│   ├── 001_one_add_one.lua  # 用例：验证 1+1=2
-│   └── 002_random.lua  # 用例：随机输入 10 拍
-├── main.lua            # Verilua 入口
-└── xmake.lua           # 构建脚本
+```text
+Testriscv-mini/
+├── riscv-mini/         # 处理器源码子模块
+├── build.sc            # 验证仓库的 Mill 构建配置
+├── .mill-version       # 固定 Mill 版本
+├── xmake.lua           # RTL 生成、仿真和清理目标
+├── main.lua            # Verilua 仿真入口
+├── src/
+│   ├── cfg.lua         # Lua 环境配置
+│   └── env.lua         # 待迁移的信号绑定、复位与辅助函数
+├── test_cases/         # 待替换的加法器示例用例
+├── build/
+│   └── rtl/            # 生成的 SystemVerilog，顶层为 Tile
+└── out/                # Mill 构建缓存
 ```
 
-## Quick Start
+`build/` 和 `out/` 均为构建产物目录，已加入 Git 忽略规则。
 
-### Step 1. 初始化子模块
+## 环境准备
+
+RTL 生成需要以下工具：
+
+| 工具或依赖 | 当前配置与用途 |
+| --- | --- |
+| Git | 获取仓库及 riscv-mini 子模块 |
+| Java | 运行 Mill 和 Scala 编译器；当前流程已在 Java 11 下验证 |
+| Mill | `.mill-version` 固定为 `0.11.2` |
+| xmake | 提供统一构建入口 |
+| Verilua 的 xmake 规则与工具链 | `xmake.lua` 中的 `sim` 目标使用 `verilua` 规则及 `@vcs`、`@verilator` 工具链，需要按 Verilua 文档配置 |
+
+Scala `2.13.7`、Chisel `6.2.0` 以及对应的 Chisel 编译器插件由 `build.sc` 声明，首次构建时由 Mill 解析依赖。首次运行还需要能够获取依赖及 Chisel 所需的 firtool。
+
+初始化子模块：
 
 ```bash
-git submodule update --init
+git submodule update --init --recursive
 ```
 
-### Step 2. 生成 RTL
+当前 `.gitmodules` 使用 GitHub SSH 地址，拉取子模块需要配置相应的 SSH 访问权限。
 
-使用验证仓库根目录的 `build.sc`（Mill 版本由 `.mill-version` 固定）编译
-`riscv-mini/src/main/scala` 中的 Chisel 源码，通过 `mini.Main` 生成 SystemVerilog，
-再复制到 `build/rtl/`。需要预先安装 Java 和 Mill。
+## 生成 SystemVerilog
+
+在仓库根目录执行：
 
 ```bash
 xmake build rtl
 ```
 
-生成的原始 RTL 位于 `build/generated-rtl/`，复制后的顶层文件为 `build/rtl/Tile.sv`。
-Mill 的 Scala 编译缓存位于 `out/`。
+该命令使用根目录的 `build.sc`，编译 `riscv-mini/src/main/scala/` 中的源码，再调用 `mini.Main` 将 RTL 直接写入 `build/rtl/`。构建结束时会检查 `Tile.sv` 是否存在，并输出：
 
-### 3. 运行仿真
-
-```bash
-# 默认仿真器 VCS 
-xmake build sim # 编译得到 testbench 文件
-xmake run sim # 默认运行 TC=000（冒烟用例）
-TC=001 xmake run sim
-TC=002 xmake run sim
-
-# 修改仿真器为 verilator
-SIM=verilator xmake build sim # 编译得到 testbench 文件
-SIM=verilator xmake run sim # 默认运行 TC=000（冒烟用例）
-SIM=verilator TC=001 xmake run sim
-SIM=verilator TC=002 xmake run sim
+```text
+[INFO] RTL 已生成到 build/rtl/
+[100%]: build ok, ...
 ```
 
-用例编号取 `test_cases/` 下文件名的前三位数字。
+顶层模块为 `Tile`，顶层文件为 `build/rtl/Tile.sv`。生成过程只使用这一份 RTL 输出目录，无中间复制目录。Mill 的编译缓存单独保存在 `out/`。
 
-### 4. 清理构建产物
+如需直接调用 Mill，在仓库根目录执行等价命令：
+
+```bash
+mill -i riscvMini.runMain mini.Main --target-dir "$PWD/build/rtl"
+```
+
+修改处理器 Scala 源码后，重新运行 `xmake build rtl` 即可更新 RTL。本流程使用验证仓库的 Mill 配置，不依赖子模块中的 sbt 或 Makefile 构建入口。
+
+## 仿真环境迁移
+
+`xmake.lua` 已保留 VCS 和 Verilator 的仿真目标，但使用前还需要完成以下适配：
+
+1. 将 `sim` 目标的 `cfg.top` 从模板的 `Top` 改为实际顶层 `Tile`，核对 testbench 生成参数和仿真器选项。
+2. 将 `src/env.lua` 中的加法器信号绑定、输入驱动函数替换为处理器所需的接口和驱动逻辑。
+3. 补充或替换 `src/env.lua` 引用的 `TestTemplateMonitor`；当前仓库没有该模块的实现。
+4. 将 `test_cases/` 下的加法器示例替换为处理器测试，并补充内存响应、程序加载和结果检查等验证逻辑。
+
+完成适配后，可使用已有目标组织仿真。`sim` 不会自动触发 `rtl`，应先生成 RTL，再构建和运行仿真：
+
+```bash
+# VCS（默认仿真器）
+xmake build rtl
+SIM=vcs TC=000 xmake build sim
+SIM=vcs TC=000 xmake run sim
+
+# Verilator
+xmake build rtl
+SIM=verilator TC=000 xmake build sim
+SIM=verilator TC=000 xmake run sim
+```
+
+以上为适配完成后的命令入口，当前加法器模板用例不能用于验证 `Tile`。
+
+### 用例与环境变量
+
+| 变量 | 默认值 | 当前代码中的作用 |
+| --- | --- | --- |
+| `SIM` | `vcs` | 选择仿真器；设为 `verilator` 时使用 Verilator 工具链 |
+| `TC` | `000` | 取前三个字符匹配 `test_cases/` 下的 Lua 文件名前缀 |
+| `DUMP` | 未设置 | 设置后由 `main.lua` 请求导出 VCD 波形；文件名为 `${TC}.vcd`，未设置 `TC` 时为 `sim.vcd` |
+| `HEART` | `true` | 控制现有监控任务每 10000 个周期输出一次心跳日志 |
+
+`ENABLE` 和 `VER` 目前也在 `src/cfg.lua` 中读取，分别保留模板 Monitor 的启用与日志配置，但当前缺少对应的 Monitor 实现。
+
+用例文件名沿用 `NNN_name.lua` 格式，并返回一个可调用函数。xmake 将匹配的模块名传入 `TC_NAME`，`main.lua` 加载环境和用例，执行复位、启动监控任务，然后调用用例函数。每个三位编号应对应唯一用例。
+
+## 清理构建产物
 
 ```bash
 xmake run clean
 ```
 
-## 执行流程原理简介
+该目标删除整个 `build/` 目录，包括生成的 RTL 和该目录下的仿真产物。Mill 的 `out/` 缓存会保留。
 
-以 `TC=000 xmake r sim` 为例，完整执行链路如下：
+## 相关项目
 
-```
-TC=000 xmake r sim
-│
-├─ [xmake] 解析 TC=000
-│   └─ 在 test_cases/ 中匹配前缀 "000" → 000_smoke.lua
-│       将 TC_NAME=000_smoke 注入运行时环境
-│
-├─ [xmake] 调用已编译的 simv（VCS 仿真二进制）
-│
-├─ [VCS/simv] 加载 libverilua_vcs.so，Verilua 初始化 Lua 运行时
-│   └─ 入口：main.lua
-│
-├─ [main.lua] require "env"
-│   └─ env.lua 初始化 DUT 信号句柄（clock、input_a/b、output_sum）
-│       并构造 TestTemplateMonitor 实例
-│
-├─ [main.lua] fork { main_task }  ← 创建主协程
-│
-├─ [main_task] require(TC_NAME)  →  加载 000_smoke.lua
-│              得到 tc.tasks = { task_single }
-│
-├─ [main_task] env.dut_reset()
-│   └─ reset 拉高 → posedge × 10 → reset 拉低
-│
-├─ [main_task] env.launch_monitor_task()
-│   └─ 向调度器追加 monitor_task 协程（并发运行）
-│       每拍采样信号 → TestTemplateMonitor:sample()
-│       每 10000 周期输出日志
-│
-├─ [main_task] 遍历 tc.tasks，依次调用
-│   └─ task_single(): set_input(0, 0) → posedge × 1
-│
-├─ [main_task] env.test_success()  →  打印 "=== TEST PASSED ==="
-│
-└─ [main_task] sim.finish()  →  仿真结束
-```
-
-结合具体程序代码可以更好地理解上述流程。
-
-## 验证环境
-
-### 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `TC` | `000` | 测试用例编号前缀 |
-| `SIM` | `vcs` | 仿真器（`vcs` / `verilator`） |
-| `ENABLE` | `true` | 是否启用 TestTemplateMonitor |
-| `VER` | `true` | 是否启用 Monitor 日志输出 |
-| `HEART` | `true` | 是否启用每 10000 个时钟周期的日志输出 |
-
-### 添加新用例
-
-在 `test_cases/` 下新建 `NNN_name.lua`，返回一个 `test_template.TestCase` 表，仿照其他用例编写风格即可。
-
-### 修改 RTL
-
-编辑 `ChiselTemplate/src/` 下的 Scala 源码后，重新运行 `xmake build rtl` 再重新编译仿真即可。
+- [riscv-mini](https://github.com/ucb-bar/riscv-mini)：处理器源码；原项目的架构与测试说明见 [子模块 README](riscv-mini/README.md)。
+- [Verilua](https://github.com/cyril0124/verilua)：Lua 硬件验证框架。
+- [Mill](https://mill-build.org/)：Scala 构建工具。
+- [xmake](https://xmake.io/)：本工程的构建命令入口。
