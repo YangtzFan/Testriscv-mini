@@ -16,7 +16,6 @@ local input_a = ([[
     | a_bits => a
 ]]):abdl({ hier = hier, prefix = prefix, name = "INPUT_A" })
 
-
 ---@type verilua.handles.AliasBundle
 local input_b = ([[
     | b_valid => valid_b
