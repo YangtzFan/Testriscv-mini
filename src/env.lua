@@ -1,4 +1,3 @@
-local TestTemplateMonitor = require "TestTemplateMonitor"
 local cfg = require "cfg"
 
 ---@class test_template.TestCase

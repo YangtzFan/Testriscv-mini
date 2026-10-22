@@ -82,8 +82,7 @@ mill -i riscvMini.runMain mini.Main --target-dir "$PWD/build/rtl"
 
 1. 将 `sim` 目标的 `cfg.top` 从模板的 `Top` 改为实际顶层 `Tile`，核对 testbench 生成参数和仿真器选项。
 2. 将 `src/env.lua` 中的加法器信号绑定、输入驱动函数替换为处理器所需的接口和驱动逻辑。
-3. 补充或替换 `src/env.lua` 引用的 `TestTemplateMonitor`；当前仓库没有该模块的实现。
-4. 将 `test_cases/` 下的加法器示例替换为处理器测试，并补充内存响应、程序加载和结果检查等验证逻辑。
+3. 将 `test_cases/` 下的加法器示例替换为处理器测试，并补充内存响应、程序加载和结果检查等验证逻辑。
 
 完成适配后，可使用已有目标组织仿真。`sim` 不会自动触发 `rtl`，应先生成 RTL，再构建和运行仿真：
 
@@ -108,11 +107,9 @@ SIM=verilator TC=000 xmake run sim
 | `SIM` | `vcs` | 选择仿真器；设为 `verilator` 时使用 Verilator 工具链 |
 | `TC` | `000` | 取前三个字符匹配 `test_cases/` 下的 Lua 文件名前缀 |
 | `DUMP` | 未设置 | 设置后由 `main.lua` 请求导出 VCD 波形；文件名为 `${TC}.vcd`，未设置 `TC` 时为 `sim.vcd` |
-| `HEART` | `true` | 控制现有监控任务每 10000 个周期输出一次心跳日志 |
+| `HEART` | `true` | 控制心跳日志任务每 10000 个周期输出一次日志 |
 
-`ENABLE` 和 `VER` 目前也在 `src/cfg.lua` 中读取，分别保留模板 Monitor 的启用与日志配置，但当前缺少对应的 Monitor 实现。
-
-用例文件名沿用 `NNN_name.lua` 格式，并返回一个可调用函数。xmake 将匹配的模块名传入 `TC_NAME`，`main.lua` 加载环境和用例，执行复位、启动监控任务，然后调用用例函数。每个三位编号应对应唯一用例。
+用例文件名沿用 `NNN_name.lua` 格式，并返回一个可调用函数。xmake 将匹配的模块名传入 `TC_NAME`，`main.lua` 加载环境和用例，执行复位、启动心跳日志任务，然后调用用例函数。每个三位编号应对应唯一用例。
 
 ## 清理构建产物
 
