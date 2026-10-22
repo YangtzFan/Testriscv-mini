@@ -3,14 +3,13 @@
 local prj_dir = os.projectdir()
 local build_dir = path.join(prj_dir, "build")
 local rtl_dir = path.join(build_dir, "rtl")
-local generated_dir = path.join(build_dir, "generated-rtl")
 local src_dir = path.join(prj_dir, "src")
 local tc_dir  = path.join(prj_dir, "test_cases")
 
 local sim = os.getenv "SIM" or "vcs" -- 默认使用 VCS 仿真器
 
 -- ============================================================================
--- target: rtl —— 将 riscv-mini 中的 Chisel 源码编译为 SystemVerilog 并复制到 rtl_dir
+-- target: rtl —— 将 riscv-mini 中的 Chisel 源码编译为 SystemVerilog，直接生成到 rtl_dir
 -- ============================================================================
 target("rtl", function()
     set_kind("phony")
@@ -18,15 +17,12 @@ target("rtl", function()
     on_build(function()
         os.execv("mill", {
             "-i", "riscvMini.runMain", "mini.Main",
-            "--target-dir", generated_dir
+            "--target-dir", rtl_dir
         }, {curdir = prj_dir})
 
-        assert(os.isfile(path.join(generated_dir, "Tile.sv")),
+        assert(os.isfile(path.join(rtl_dir, "Tile.sv")),
             "riscv-mini 未生成预期的 Tile.sv")
-        os.tryrm(rtl_dir)
-        os.mkdir(rtl_dir)
-        os.cp(path.join(generated_dir, "*"), rtl_dir)
-        cprint("${green underline}[INFO]${clear} RTL 已复制到 build/rtl/")
+        cprint("${green underline}[INFO]${clear} RTL 已生成到 build/rtl/")
     end)
 end)
 
