@@ -5,28 +5,80 @@ local cfg = require "cfg"
 
 local random = math.random
 
-local clock = dut.clock:chdl()
-
 local hier = "tb_top" --[[@type string]]
-local prefix = "io_" --[[@type string]]
 
 ---@type verilua.handles.AliasBundle
-local input_a = ([[
-    | a_valid => valid_a
-    | a_bits => a
-]]):abdl({ hier = hier, prefix = prefix, name = "INPUT_A" })
+local control = ([[
+    | clock
+    | reset
+]]):abdl({ hier = hier, name = "CONTROL" })
+
+local clock = control.clock
 
 ---@type verilua.handles.AliasBundle
-local input_b = ([[
-    | b_valid => valid_b
-    | b_bits => b
-]]):abdl({ hier = hier, prefix = prefix, name = "INPUT_B" })
+local host = ([[
+    | fromhost_valid
+    | fromhost_bits => fromhost
+    | tohost
+]]):abdl({ hier = hier, prefix = "io_host_", name = "HOST" })
+
+-- Tile is the Nasti master; the testbench drives the memory slave inputs.
+---@type verilua.handles.AliasBundle
+local nasti_aw = ([[
+    | ready
+    | valid
+    | bits_id => id
+    | bits_addr => addr
+    | bits_len => len
+    | bits_size => size
+    | bits_burst => burst
+    | bits_lock => lock
+    | bits_cache => cache
+    | bits_prot => prot
+    | bits_qos => qos
+]]):abdl({ hier = hier, prefix = "io_nasti_aw_", name = "NASTI_AW" })
 
 ---@type verilua.handles.AliasBundle
-local output_sum = ([[
-    | out_valid => valid_sum
-    | out_bits => sum
-]]):abdl({ hier = hier, prefix = prefix, name = "OUTPUT_SUM" })
+local nasti_w = ([[
+    | ready
+    | valid
+    | bits_data => data
+    | bits_strb => strb
+    | bits_last => last
+]]):abdl({ hier = hier, prefix = "io_nasti_w_", name = "NASTI_W" })
+
+---@type verilua.handles.AliasBundle
+local nasti_b = ([[
+    | ready
+    | valid
+    | bits_id => id
+    | bits_resp => resp
+]]):abdl({ hier = hier, prefix = "io_nasti_b_", name = "NASTI_B" })
+
+---@type verilua.handles.AliasBundle
+local nasti_ar = ([[
+    | ready
+    | valid
+    | bits_id => id
+    | bits_addr => addr
+    | bits_len => len
+    | bits_size => size
+    | bits_burst => burst
+    | bits_lock => lock
+    | bits_cache => cache
+    | bits_prot => prot
+    | bits_qos => qos
+]]):abdl({ hier = hier, prefix = "io_nasti_ar_", name = "NASTI_AR" })
+
+---@type verilua.handles.AliasBundle
+local nasti_r = ([[
+    | ready
+    | valid
+    | bits_id => id
+    | bits_data => data
+    | bits_resp => resp
+    | bits_last => last
+]]):abdl({ hier = hier, prefix = "io_nasti_r_", name = "NASTI_R" })
 
 local function monitor_task()
     local cycles = dut.cycles:get()
@@ -52,29 +104,33 @@ local function launch_monitor_task()
     end
 end
 
+-- Hold all memory responses and request acceptance inactive until a driver starts.
+local function init_inputs()
+    host.fromhost_valid:set_imm(0)
+    host.fromhost:set_imm(0)
+    nasti_aw.ready:set_imm(0)
+    nasti_w.ready:set_imm(0)
+    nasti_b.valid:set_imm(0)
+    nasti_b.id:set_imm(0)
+    nasti_b.resp:set_imm(0)
+    nasti_ar.ready:set_imm(0)
+    nasti_r.valid:set_imm(0)
+    nasti_r.id:set_imm(0)
+    nasti_r.data:set_imm(0)
+    nasti_r.resp:set_imm(0)
+    nasti_r.last:set_imm(0)
+end
+
 local function dut_reset()
-    dut.reset:set_imm(1)
+    control.reset:set_imm(1)
+    init_inputs()
     clock:posedge(10)
-    dut.reset:set_imm(0)
+    control.reset:set_imm(0)
 end
 
 ---@return integer
 local function get_random_bit()
     return random(100) % 2
-end
-
----@param a integer
----@param b integer
-local function set_input(a, b)
-    dut.io_a_bits:set(a)
-    dut.io_b_bits:set(b)
-    dut.io_a_valid:set(1)
-    dut.io_b_valid:set(1)
-end
-
-local function unset_input()
-    dut.io_a_valid:set(0)
-    dut.io_b_valid:set(0)
 end
 
 local function test_success()
@@ -93,11 +149,19 @@ end
 ---@class test_template.Env
 local EnvUtils = {
     clock = clock,
+    control = control,
+    host = host,
+    nasti = {
+        aw = nasti_aw,
+        w = nasti_w,
+        b = nasti_b,
+        ar = nasti_ar,
+        r = nasti_r,
+    },
+    init_inputs = init_inputs,
     get_random_bit = get_random_bit,
     dut_reset = dut_reset,
     launch_monitor_task = launch_monitor_task,
-    set_input = set_input,
-    unset_input = unset_input,
     test_success = test_success,
 }
 

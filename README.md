@@ -7,7 +7,8 @@
 ## 当前状态
 
 - **RTL 生成已跑通**：执行 `xmake build rtl`，通过 Mill 调用 `mini.Main`，直接生成 `build/rtl/Tile.sv`。
-- **仿真环境正在迁移**：现有 Lua 环境和用例仍来自加法器模板，尚未适配 riscv-mini，当前没有已跑通的处理器仿真或指令测试。
+- **factorial 仿真已跑通**：Verilator 下加载 `factorial.hex`，通过 Nasti 内存模型完成缓存填充和栈访问，检查 `factorial(10) = 3628800` 与 `tohost = 1`。
+- `001`、`002` 仍为未迁移的加法器模板，当前处理器示例使用 `TC=000`。
 
 ## 目录结构
 
@@ -20,8 +21,9 @@ Testriscv-mini/
 ├── main.lua            # Verilua 仿真入口
 ├── src/
 │   ├── cfg.lua         # Lua 环境配置
-│   └── env.lua         # 待迁移的信号绑定、复位与辅助函数
-├── test_cases/         # 待替换的加法器示例用例
+│   ├── env.lua         # Tile 的 AliasBundle、复位与辅助函数
+│   └── memory.lua      # hex 加载、64 位 Nasti 内存响应
+├── test_cases/         # 000_factorial.lua，以及尚未迁移的旧模板
 ├── build/
 │   └── rtl/            # 生成的 SystemVerilog，顶层为 Tile
 └── out/                # Mill 构建缓存
@@ -76,36 +78,39 @@ mill -i riscvMini.runMain mini.Main --target-dir "$PWD/build/rtl"
 
 修改处理器 Scala 源码后，重新运行 `xmake build rtl` 即可更新 RTL。本流程使用验证仓库的 Mill 配置，不依赖子模块中的 sbt 或 Makefile 构建入口。
 
-## 仿真环境迁移
+## factorial 仿真
 
-`xmake.lua` 已保留 VCS 和 Verilator 的仿真目标，但使用前还需要完成以下适配：
-
-1. 将 `sim` 目标的 `cfg.top` 从模板的 `Top` 改为实际顶层 `Tile`，核对 testbench 生成参数和仿真器选项。
-2. 将 `src/env.lua` 中的加法器信号绑定、输入驱动函数替换为处理器所需的接口和驱动逻辑。
-3. 将 `test_cases/` 下的加法器示例替换为处理器测试，并补充内存响应、程序加载和结果检查等验证逻辑。
-
-完成适配后，可使用已有目标组织仿真。`sim` 不会自动触发 `rtl`，应先生成 RTL，再构建和运行仿真：
+已在 Verilator 下验证以下流程：
 
 ```bash
-# VCS（默认仿真器）
-xmake build rtl
-SIM=vcs TC=000 xmake build sim
-SIM=vcs TC=000 xmake run sim
-
-# Verilator
+make -C programs/factorial
 xmake build rtl
 SIM=verilator TC=000 xmake build sim
 SIM=verilator TC=000 xmake run sim
 ```
 
-以上为适配完成后的命令入口，当前加法器模板用例不能用于验证 `Tile`。
+通过时输出：
+
+```text
+factorial(10) = 3628800; tohost=1; cycles=778
+Nasti: 40 reads (80 beats), 0 writebacks (0 beats)
+=== TEST PASSED ===
+```
+
+`src/env.lua` 通过 AliasBundle 接入 `Tile` 的控制、host 和 Nasti 五个通道。`src/memory.lua` 将 `elf2hex 16` 镜像按小端顺序载入 512 KiB 字节存储，通过统一的 Nasti 端口响应指令缓存和数据缓存的访问，包括 64 位 INCR 突发、写字节选通和写响应。Tile 没有独立的顶层 IROM 端口；指令从该内存经过指令缓存取得。
+
+`000_factorial.lua` 从复位地址 `0x200` 开始运行，等待 `tohost = 1`，同时检查 CPU 向数据缓存写入的 `ans` 是否为 `3628800`。该程序的局部变量地址 `0x7ffec` 来自当前 `factorial.dump` 中的栈布局，重新编译时若改变代码或编译选项，需要同步核对。数据缓存采用写回策略，程序退出前不一定把结果写回外部内存，因此结果检查观察 CPU 的存储请求。
+
+`sim` 不会自动编译程序或生成 RTL，应先执行前两条构建命令。`HEX` 指定替代镜像，相对路径按项目根目录解析；当前用例仍要求 factorial 的入口指令与结果约定。VCS 目标保留，但本次只验证了 Verilator。
 
 ### 用例与环境变量
 
 | 变量 | 默认值 | 当前代码中的作用 |
 | --- | --- | --- |
 | `SIM` | `vcs` | 选择仿真器；设为 `verilator` 时使用 Verilator 工具链 |
-| `TC` | `000` | 取前三个字符匹配 `test_cases/` 下的 Lua 文件名前缀 |
+| `TC` | `000` | 取前三个字符匹配 `test_cases/` 下的 Lua 文件名前缀；`000` 为 factorial |
+| `HEX` | `build/programs/factorial/factorial.hex` | factorial 用例加载的 128 位 elf2hex 镜像 |
+| `MAX_CYCLES` | `100000` | factorial 用例的周期上限，超时则失败 |
 | `DUMP` | 未设置 | 设置后由 `main.lua` 请求导出 VCD 波形；文件名为 `${TC}.vcd`，未设置 `TC` 时为 `sim.vcd` |
 | `HEART` | `true` | 控制心跳日志任务每 10000 个周期输出一次日志 |
 
