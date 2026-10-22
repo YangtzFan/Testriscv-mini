@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/EmmyLuaLs/emmylua-analyzer-rust/refs/heads/main/crates/emmylua_code_analysis/resources/schema.json",
+  "diagnostics": {
+    "disable": [
+      "unnecessary-assert",
+      "unnecessary-if",
+      "invert-if",
+      "unresolved-require"
+    ],
+    "severity": {
+      "duplicate-type": "error",
+      "type-not-found": "error"
+    }
+  },
+  "hint": {
+    "enable": true
+  },
+  "runtime": {
+    "requireLikeFunction": [
+      "load",
+      "dofile"
+    ],
+    "version": "LuaJIT"
+  },
+  "workspace": {
+    "enableReindex": true,
+    "encoding": "utf-8",
+    "ignoreDir": [
+      ".vscode",
+      ".xmake",
+      "build"
+    ],
+    "ignoreGlobs": [],
+    "library": [
+      "$VERILUA_HOME/src/lua"
+    ],
+    "reindexDuration": 5000
+  }
+}

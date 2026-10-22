@@ -1,0 +1,11 @@
+.xmake
+.luajit_pro/
+.vscode/
+build/
+out/
+*.log
+verdiLog/
+novas.conf
+novas.rc
+.metals/
+.pi/
