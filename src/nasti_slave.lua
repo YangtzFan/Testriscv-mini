@@ -1,44 +1,36 @@
-local ffi = require "ffi"
 local class = require "pl.class"
+local Memory = require "test_zhujiang_utils.Memory"
 
--- Tile exposes a unified 64-bit Nasti port for I-cache refills and D-cache
--- refills/writebacks. Keep byte-addressed storage so elf2hex endianness and
--- write strobes do not depend on Lua's floating-point integer precision.
----@class test_template.Memory
----@overload fun(bus: table<string, verilua.handles.AliasBundle>, clock: verilua.handles.CallableHDL, size: integer): test_template.Memory
-local Memory = class()
+-- Nasti slave driver backed exclusively by the shared 32-byte Memory entries.
+---@class test_template.NastiSlave
+---@overload fun(bus: table<string, verilua.handles.AliasBundle>, clock: verilua.handles.CallableHDL, size: integer): test_template.NastiSlave
+local NastiSlave = class()
 
----@param bus table<string, verilua.handles.AliasBundle>
----@param clock verilua.handles.CallableHDL
----@param size integer
-function Memory:_init(bus, clock, size)
+function NastiSlave:_init(bus, clock, size)
     self.bus = bus
     self.clock = clock
     self.size = size
-    self.bytes = ffi.new("uint8_t[?]", size)
+    self.storage = Memory("TileMemory", false)
     self.state = "idle"
     self.reads, self.writes = 0, 0
     self.read_beats, self.write_beats = 0, 0
 end
 
-function Memory:check_range(addr, count)
+function NastiSlave:check_range(addr, count)
     assert(addr >= 0 and addr + count <= self.size,
         string.format("Memory access out of range: addr=0x%x bytes=%d", addr, count))
 end
 
--- elf2hex 16 emits one 128-bit value per line, most significant byte first.
--- The rightmost byte belongs at the lowest address of each 16-byte entry.
-function Memory:load_hex(filename)
+-- elf2hex 16 places the lower-addressed bytes at the right of each line.
+function NastiSlave:load_hex(filename)
     local file = assert(io.open(filename, "r"))
     local addr = 0
     for line in file:lines() do
         local hex = line:gsub("%s", "")
         assert(#hex == 32 and hex:match("^%x+$"), "Expected 128-bit elf2hex entries")
         self:check_range(addr, 16)
-        for byte = 0, 15 do
-            local last = #hex - byte * 2
-            self.bytes[addr + byte] = assert(tonumber(hex:sub(last - 1, last), 16))
-        end
+        self:write_hex(addr, hex:sub(17, 32), 255)
+        self:write_hex(addr + 8, hex:sub(1, 16), 255)
         addr = addr + 16
     end
     file:close()
@@ -46,28 +38,27 @@ function Memory:load_hex(filename)
     print(string.format("Loaded %s: %d bytes, entry=0x200", filename, addr))
 end
 
-function Memory:read_hex(addr)
+function NastiSlave:read_hex(addr)
     self:check_range(addr, 8)
-    local bytes = {}
-    for i = 7, 0, -1 do
-        bytes[#bytes + 1] = string.format("%02x", tonumber(self.bytes[addr + i]))
-    end
-    return table.concat(bytes)
+    assert(addr % 8 == 0, "Unaligned 64-bit memory read")
+    local line = self.storage:read(addr, true)
+    local first = 49 - (addr % 32) * 2
+    return line:sub(first, first + 15)
 end
 
-function Memory:write_hex(addr, hex, strobe)
+function NastiSlave:write_hex(addr, hex, strobe)
     self:check_range(addr, 8)
+    assert(addr % 8 == 0, "Unaligned 64-bit memory write")
     assert(#hex <= 16 and hex:match("^%x+$"), "Invalid 64-bit write data")
+    assert(strobe >= 0 and strobe <= 255 and strobe % 1 == 0, "Invalid 8-bit write strobe")
     hex = string.rep("0", 16 - #hex) .. hex
-    for i = 0, 7 do
-        if math.floor(strobe / 2 ^ i) % 2 == 1 then
-            local last = 16 - 2 * i
-            self.bytes[addr + i] = assert(tonumber(hex:sub(last - 1, last), 16))
-        end
-    end
+    local offset = addr % 32
+    local data = string.rep("0", (24 - offset) * 2) .. hex .. string.rep("0", offset * 2)
+    local mask = string.format("%08x", strobe * 2 ^ offset)
+    self.storage:write(addr, data, mask)
 end
 
-function Memory:accept_address(channel, state)
+function NastiSlave:accept_address(channel, state)
     self.addr = channel.addr:get()
     self.id = channel.id:get()
     self.len = channel.len:get()
@@ -79,9 +70,8 @@ function Memory:accept_address(channel, state)
     self.state = state
 end
 
--- Drive on falling edges and sample handshakes on rising edges. State changes
--- take effect at the next falling edge; responses remain stable under stalls.
-function Memory:step()
+-- Drive at falling edges, sample at rising edges; hold responses under stalls.
+function NastiSlave:step()
     local bus = self.bus
     self.clock:negedge()
     bus.aw.ready:set(self.state == "idle" and 1 or 0)
@@ -130,4 +120,4 @@ function Memory:step()
     end
 end
 
-return Memory
+return NastiSlave

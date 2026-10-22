@@ -22,7 +22,7 @@ Testriscv-mini/
 ├── src/
 │   ├── cfg.lua         # Lua 环境配置
 │   ├── env.lua         # Tile 的 AliasBundle、复位与辅助函数
-│   └── memory.lua      # hex 加载、64 位 Nasti 内存响应
+│   └── nasti_slave.lua # hex 加载、64 位 Nasti 从设备驱动
 ├── test_cases/         # 000_factorial.lua，以及尚未迁移的旧模板
 ├── build/
 │   └── rtl/            # 生成的 SystemVerilog，顶层为 Tile
@@ -97,7 +97,7 @@ Nasti: 40 reads (80 beats), 0 writebacks (0 beats)
 === TEST PASSED ===
 ```
 
-`src/env.lua` 通过 AliasBundle 接入 `Tile` 的控制、host 和 Nasti 五个通道。`src/memory.lua` 将 `elf2hex 16` 镜像按小端顺序载入 512 KiB 字节存储，通过统一的 Nasti 端口响应指令缓存和数据缓存的访问，包括 64 位 INCR 突发、写字节选通和写响应。Tile 没有独立的顶层 IROM 端口；指令从该内存经过指令缓存取得。
+`src/env.lua` 通过 AliasBundle 接入 `Tile` 的控制、host 和 Nasti 五个通道。`src/nasti_slave.lua` 使用 `test_zhujiang_utils.Memory` 的 256 位存储单元保存镜像，提供 512 KiB 地址范围，并适配 Tile 的 64 位 Nasti 数据拍、INCR 突发、写字节选通和写响应。共享模块通过 `src/test_zhujiang_utils` 符号链接引入，运行前需确认链接目标存在。Tile 没有独立的顶层 IROM 端口；指令从该内存经过指令缓存取得。
 
 `000_factorial.lua` 从复位地址 `0x200` 开始运行，等待 `tohost = 1`，同时检查 CPU 向数据缓存写入的 `ans` 是否为 `3628800`。该程序的局部变量地址 `0x7ffec` 来自当前 `factorial.dump` 中的栈布局，重新编译时若改变代码或编译选项，需要同步核对。数据缓存采用写回策略，程序退出前不一定把结果写回外部内存，因此结果检查观察 CPU 的存储请求。
 

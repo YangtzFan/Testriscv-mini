@@ -1,5 +1,5 @@
 local env = (require "env") --[[@as test_template.Env]]
-local Memory = require "memory"
+local NastiSlave = require "nasti_slave"
 
 -- This example's main stores ans at __stack_top - 20 (see factorial.dump).
 -- Observe the CPU-side store because this write-back cache need not evict the
@@ -12,7 +12,7 @@ local stores = ([[
 ]]):abdl({ hier = "tb_top.u_Tile.core", prefix = "io_dcache_", name = "CPU_STORES" })
 
 return function()
-    local memory = Memory(env.nasti, env.clock, 0x80000)
+    local memory = NastiSlave(env.nasti, env.clock, 0x80000)
     local image = os.getenv("HEX") or "build/programs/factorial/factorial.hex"
     if image:sub(1, 1) ~= "/" then
         image = cfg.prj_dir .. "/" .. image
